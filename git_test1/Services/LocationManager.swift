@@ -20,9 +20,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     override init() {
         super.init()
         manager.delegate = self
-        manager.allowsBackgroundLocationUpdates = true
-        manager.pausesLocationUpdatesAutomatically = false
-        manager.showsBackgroundLocationIndicator = true
         authorizationStatus = manager.authorizationStatus
         applyProfile(for: .stationary)
     }
@@ -38,6 +35,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             requestAuthorization()
             return
         }
+        manager.allowsBackgroundLocationUpdates = true
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
         manager.startMonitoringSignificantLocationChanges()
         startTimer()
@@ -91,7 +91,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         )
         logEntries.insert(entry, at: 0)
 
-        // Publish to TrackAnalyzer pipeline
         locationPublisher.send(location)
     }
 
