@@ -7,6 +7,10 @@ final class TrackAnalyzer: ObservableObject {
     @Published var currentSegments: [TrackSegment] = []
     @Published var currentDayLog: DayLog = DayLog()
 
+    var allCoordinates: [CLLocationCoordinate2D] {
+        currentSegments.flatMap { $0.points.map(\.coordinate) }
+    }
+
     private var cancellables = Set<AnyCancellable>()
     private var activeSegment: TrackSegment?
 

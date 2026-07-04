@@ -7,11 +7,15 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var lastLocation: CLLocation?
     @Published var isTracking: Bool = false
+    @Published var currentMode: MovementMode = .stationary
+    @Published var logEntries: [GPSLogEntry] = []
+    @Published var recordIntervalSeconds: Int = 5
 
-    // Downstream consumers (TrackAnalyzer) subscribe here
     let locationPublisher = PassthroughSubject<CLLocation, Never>()
 
     private let manager = CLLocationManager()
+    private var latestLocation: CLLocation?
+    private var recordTimer: Timer?
 
     override init() {
         super.init()
@@ -23,6 +27,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         applyProfile(for: .stationary)
     }
 
+    // MARK: - Public API
+
     func requestAuthorization() {
         manager.requestAlwaysAuthorization()
     }
@@ -33,15 +39,60 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
         manager.startUpdatingLocation()
-        // Fallback: if iOS kills the app, significant-change monitoring can relaunch it
         manager.startMonitoringSignificantLocationChanges()
+        startTimer()
         isTracking = true
     }
 
     func stopTracking() {
         manager.stopUpdatingLocation()
         manager.stopMonitoringSignificantLocationChanges()
+        stopTimer()
         isTracking = false
+    }
+
+    func setRecordInterval(_ seconds: Int) {
+        recordIntervalSeconds = seconds
+        if isTracking {
+            stopTimer()
+            startTimer()
+        }
+    }
+
+    func clearLog() {
+        logEntries.removeAll()
+    }
+
+    // MARK: - Timer
+
+    private func startTimer() {
+        recordTimer?.invalidate()
+        recordTimer = Timer.scheduledTimer(
+            withTimeInterval: TimeInterval(recordIntervalSeconds),
+            repeats: true
+        ) { [weak self] _ in
+            self?.saveCurrentLocation()
+        }
+    }
+
+    private func stopTimer() {
+        recordTimer?.invalidate()
+        recordTimer = nil
+    }
+
+    private func saveCurrentLocation() {
+        guard let location = latestLocation else { return }
+        let entry = GPSLogEntry(
+            timestamp: location.timestamp,
+            coordinate: location.coordinate,
+            speed: max(0, location.speed),
+            accuracy: location.horizontalAccuracy,
+            mode: MovementMode.classify(speed: max(0, location.speed))
+        )
+        logEntries.insert(entry, at: 0)
+
+        // Publish to TrackAnalyzer pipeline
+        locationPublisher.send(location)
     }
 
     // MARK: - CLLocationManagerDelegate
@@ -49,14 +100,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func locationManager(_ manager: CLLocationManager,
                          didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        // Discard readings with excessive horizontal error
         guard location.horizontalAccuracy >= 0,
               location.horizontalAccuracy < 100 else { return }
 
+        latestLocation = location
         lastLocation = location
-        let mode = MovementMode.classify(speed: max(0, location.speed))
-        applyProfile(for: mode)
-        locationPublisher.send(location)
+        currentMode = MovementMode.classify(speed: max(0, location.speed))
+        applyProfile(for: currentMode)
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -71,19 +121,19 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         print("[LocationManager] \(error.localizedDescription)")
     }
 
-    // MARK: - Adaptive accuracy profile
+    // MARK: - Adaptive accuracy
 
     private func applyProfile(for mode: MovementMode) {
         switch mode {
         case .stationary:
-            manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-            manager.distanceFilter  = 50
+            manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+            manager.distanceFilter  = kCLDistanceFilterNone
         case .walking:
             manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-            manager.distanceFilter  = 10
+            manager.distanceFilter  = kCLDistanceFilterNone
         case .vehicle:
             manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-            manager.distanceFilter  = 5
+            manager.distanceFilter  = kCLDistanceFilterNone
         }
     }
 }
