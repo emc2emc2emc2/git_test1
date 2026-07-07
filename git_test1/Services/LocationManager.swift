@@ -17,6 +17,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var latestLocation: CLLocation?
     private var recordTimer: Timer?
 
+    private var hasBackgroundLocationMode: Bool {
+        let modes = Bundle.main.infoDictionary?["UIBackgroundModes"] as? [String] ?? []
+        return modes.contains("location")
+    }
+
     override init() {
         super.init()
         manager.delegate = self
@@ -35,9 +40,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             requestAuthorization()
             return
         }
-        manager.allowsBackgroundLocationUpdates = true
-        manager.pausesLocationUpdatesAutomatically = false
-        manager.showsBackgroundLocationIndicator = true
+        if hasBackgroundLocationMode {
+            manager.allowsBackgroundLocationUpdates = true
+            manager.pausesLocationUpdatesAutomatically = false
+            manager.showsBackgroundLocationIndicator = true
+        }
         manager.startUpdatingLocation()
         manager.startMonitoringSignificantLocationChanges()
         startTimer()
@@ -90,7 +97,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             mode: MovementMode.classify(speed: max(0, location.speed))
         )
         logEntries.insert(entry, at: 0)
-
         locationPublisher.send(location)
     }
 
